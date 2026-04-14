@@ -3,8 +3,8 @@ import requests
 import logging
 import pytz
 from datetime import datetime
-from telegram import Bot
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import os
 
@@ -46,9 +46,9 @@ def get_market_data():
                 timeout=8, headers={"User-Agent":"Mozilla/5.0"})
             if r.status_code == 200:
                 meta = r.json()["chart"]["result"][0]["meta"]
-                p = meta.get("regularMarketPrice",0)
+                p = meta.get("regularMarketPrice", 0)
                 prev = meta.get("chartPreviousClose", p)
-                chg = ((p-prev)/prev*100) if prev else 0
+                chg = ((p - prev) / prev * 100) if prev else 0
                 lines.append(f"{'🟢' if chg>=0 else '🔴'} {name}: {p:,.2f} ({chg:+.2f}%)")
     except: pass
     return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
@@ -79,14 +79,17 @@ def build_message():
 
 async def send_update(bot: Bot):
     try:
-        await bot.send_message(chat_id=CHAT_ID, text=build_message(),
-                               parse_mode="Markdown", disable_web_page_preview=True)
+        await bot.send_message(
+            chat_id=CHAT_ID,
+            text=build_message(),
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
         logging.info("✅ Đã gửi")
     except Exception as e:
         logging.error(f"❌ {e}")
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
+# ── /start — hiện menu chính ─────────────────────────────────
 async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
@@ -94,39 +97,56 @@ async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "👋 Xin chào! Chọn mục bạn muốn xem:",
-        reply_markup=reply_markup
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# ── /now bị vô hiệu hóa ──────────────────────────────────────
+async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info")]
+    ]
+    await update.message.reply_text(
+        "⚠️ Lệnh /now đã bị vô hiệu hóa.\nVui lòng dùng menu bên dưới:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ── Xử lý nút bấm ───────────────────────────────────────────
 async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     if query.data == "info":
         await query.message.reply_text("⏳ Đang lấy dữ liệu...")
         await send_update(context.bot)
+        await query.message.reply_text("💬 Bạn có đang đầu tư không?")
+
     elif query.data == "dautu":
+        keyboard = [
+            [InlineKeyboardButton("📊 Cập nhật thị trường ngay", callback_data="info")]
+        ]
         await query.message.reply_text(
-            "💰 *ĐẦU TƯ*\n━━━━━━━━━━━━━━━\n"
-            "Chọn lệnh bạn muốn:\n\n"
-            "/now — Cập nhật thị trường ngay\n"
-            "📈 Theo dõi tự động lúc 7:00, 12:00, 18:00 mỗi ngày",
-            parse_mode="Markdown"
+            "💰 *ĐẦU TƯ*\n━━━━━━━━━━━━━━━\n\n"
+            "📌 Bản tin tự động gửi lúc:\n"
+            "🕖 07:00 — 🕛 12:00 — 🕕 18:00\n\n"
+            "Nhấn nút bên dưới để cập nhật ngay:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
-    await send_update(context.bot)
-    await update.message.reply_text("💬 Bạn có đang đầu tư không?")
-
+# ── Main ─────────────────────────────────────────────────────
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("now", cmd_now))
+    app.add_handler(CommandHandler("now",   cmd_now))
+    app.add_handler(CallbackQueryHandler(button_handler))
+
     scheduler = AsyncIOScheduler(timezone=VN_TZ)
     for hour in [7, 12, 18]:
         scheduler.add_job(send_update, "cron", hour=hour, minute=0, args=[app.bot])
     scheduler.start()
+
     logging.info("🚀 Bot chạy...")
     app.run_polling()
 
