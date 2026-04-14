@@ -85,8 +85,35 @@ async def send_update(bot: Bot):
     except Exception as e:
         logging.error(f"❌ {e}")
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Bot đang chạy!\nGõ /now để nhận bản tin ngay.")
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
+            InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "👋 Xin chào! Chọn mục bạn muốn xem:",
+        reply_markup=reply_markup
+    )
+
+async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "info":
+        await query.message.reply_text("⏳ Đang lấy dữ liệu...")
+        await send_update(context.bot)
+    elif query.data == "dautu":
+        await query.message.reply_text(
+            "💰 *ĐẦU TƯ*\n━━━━━━━━━━━━━━━\n"
+            "Chọn lệnh bạn muốn:\n\n"
+            "/now — Cập nhật thị trường ngay\n"
+            "📈 Theo dõi tự động lúc 7:00, 12:00, 18:00 mỗi ngày",
+            parse_mode="Markdown"
+        )
 
 async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
     await send_update(context.bot)
