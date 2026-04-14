@@ -90,6 +90,7 @@ async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
     await send_update(context.bot)
+    await update.message.reply_text("💬 Bạn có đang đầu tư không?")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
