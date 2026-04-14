@@ -89,16 +89,19 @@ async def send_update(bot: Bot):
     except Exception as e:
         logging.error(f"❌ {e}")
 
-# ── /start — hiện menu chính ─────────────────────────────────
+# ── /start — menu chính ──────────────────────────────────────
 async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
             InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
+        ],
+        [
+            InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
         ]
     ]
     await update.message.reply_text(
-        "👋 Xin chào! Chọn mục bạn muốn xem:",
+        "👋 Xin chào! Chọn mục bạn muốn:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -134,6 +137,50 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+    elif query.data == "reset":
+        # Xác nhận trước khi xóa
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Xác nhận xóa", callback_data="reset_confirm"),
+                InlineKeyboardButton("❌ Hủy", callback_data="reset_cancel"),
+            ]
+        ]
+        await query.message.reply_text(
+            "⚠️ *Bạn có chắc muốn xóa toàn bộ lịch sử chat không?*\n"
+            "Hành động này không thể hoàn tác!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "reset_confirm":
+        chat_id = query.message.chat_id
+        msg_id  = query.message.message_id
+        deleted = 0
+        # Xóa lùi tối đa 200 tin nhắn gần nhất
+        for i in range(msg_id, max(msg_id - 200, 0), -1):
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=i)
+                deleted += 1
+            except: pass
+        # Gửi lại menu sau khi xóa
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
+                InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
+            ],
+            [
+                InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
+            ]
+        ]
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"✅ Đã xóa {deleted} tin nhắn.\n\n👋 Chọn mục bạn muốn:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "reset_cancel":
+        await query.message.reply_text("↩️ Đã hủy. Lịch sử chat giữ nguyên.")
 
 # ── Main ─────────────────────────────────────────────────────
 def main():
