@@ -22,6 +22,16 @@ RSS_SOURCES = {
     "🌍 BBC Business":        "https://feeds.bbci.co.uk/news/business/rss.xml",
 }
 
+MAIN_MENU = [
+    [
+        InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
+        InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
+    ],
+    [
+        InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
+    ]
+]
+
 # ── Tỷ giá USD/VND ──────────────────────────────────────────
 def get_usd_vnd():
     try:
@@ -89,12 +99,12 @@ def get_market_data():
         else:
             lines.append(f"⚠️ {name}: không lấy được")
 
-    # Sàn Việt Nam — thử lần lượt 3 ticker khác nhau
+    # Sàn Việt Nam
     lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
     vn_tickers = [
-        ("VN-Index",    ["%5EVNINDEX.VN", "%5EVNINDEX"                    ]),
-        ("VN30 (ETF)",  ["E1VFVN30.VN",  "%5EVN30",     "%5EVNIPR"       ]),
-        ("HNX",         ["%5EHNXINDEX",  "%5EHNX",      "%5EHNXINDEX.VN" ]),
+        ("VN-Index",   ["%5EVNINDEX.VN", "%5EVNINDEX"                   ]),
+        ("VN30 (ETF)", ["E1VFVN30.VN",   "%5EVN30",     "%5EVNIPR"      ]),
+        ("HNX",        ["%5EHNXINDEX",   "%5EHNX",      "%5EHNXINDEX.VN"]),
     ]
     for name, tickers in vn_tickers:
         found = False
@@ -149,61 +159,47 @@ async def send_update(bot: Bot):
     except Exception as e:
         logging.error(f"❌ {e}")
 
-# ── Menu /start ──────────────────────────────────────────────
+# ── Gửi menu ─────────────────────────────────────────────────
+async def send_menu(bot: Bot, chat_id):
+    await bot.send_message(
+        chat_id=chat_id,
+        text="📌 Chọn mục tiếp theo:",
+        reply_markup=InlineKeyboardMarkup(MAIN_MENU)
+    )
+
+# ── /start ───────────────────────────────────────────────────
 async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [
-            InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
-            InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
-        ],
-        [
-            InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
-        ]
-    ]
     await update.message.reply_text(
         "👋 Xin chào! Chọn mục bạn muốn:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(MAIN_MENU)
     )
 
 # ── /now bị vô hiệu hóa ─────────────────────────────────────
 async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info")]]
     await update.message.reply_text(
         "⚠️ Lệnh /now đã bị vô hiệu hóa.\nVui lòng dùng menu bên dưới:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(MAIN_MENU)
     )
 
 # ── Xử lý nút bấm ───────────────────────────────────────────
 async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-if query.data == "info":
+    chat_id = query.message.chat_id
+
+    if query.data == "info":
         await query.message.reply_text("⏳ Đang lấy dữ liệu, vui lòng chờ...")
         await send_update(context.bot)
-        keyboard = [
-            [
-                InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
-                InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
-            ],
-            [
-                InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
-            ]
-        ]
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="📌 Chọn mục tiếp theo:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await send_menu(context.bot, chat_id)
 
     elif query.data == "dautu":
-        keyboard = [[InlineKeyboardButton("📊 Cập nhật thị trường ngay", callback_data="info")]]
         await query.message.reply_text(
             "💰 *ĐẦU TƯ*\n━━━━━━━━━━━━━━━\n\n"
             "📌 Bản tin tự động gửi lúc:\n"
             "🕖 07:00 — 🕛 12:00 — 🕕 18:00\n\n"
-            "Nhấn nút bên dưới để cập nhật ngay:",
+            "Nhấn *Thông tin thị trường* để cập nhật ngay:",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(MAIN_MENU)
         )
 
     elif query.data == "reset":
@@ -221,7 +217,6 @@ if query.data == "info":
         )
 
     elif query.data == "reset_confirm":
-        chat_id = query.message.chat_id
         msg_id  = query.message.message_id
         deleted = 0
         for i in range(msg_id, max(msg_id - 200, 0), -1):
@@ -229,23 +224,22 @@ if query.data == "info":
                 await context.bot.delete_message(chat_id=chat_id, message_id=i)
                 deleted += 1
             except: pass
-        keyboard = [
-            [
-                InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
-                InlineKeyboardButton("💰 Đầu tư",               callback_data="dautu"),
-            ],
-            [
-                InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
-            ]
-        ]
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"✅ Đã xóa {deleted} tin nhắn.\n\n👋 Chọn mục bạn muốn:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(MAIN_MENU)
         )
 
     elif query.data == "reset_cancel":
-        await query.message.reply_text("↩️ Đã hủy. Lịch sử chat giữ nguyên.")
+        await query.message.reply_text(
+            "↩️ Đã hủy. Lịch sử chat giữ nguyên.",
+            reply_markup=InlineKeyboardMarkup(MAIN_MENU)
+        )
+
+# ── Gửi tự động kèm menu ────────────────────────────────────
+async def scheduled_update(bot: Bot):
+    await send_update(bot)
+    await send_menu(bot, CHAT_ID)
 
 # ── Main ─────────────────────────────────────────────────────
 def main():
@@ -256,7 +250,7 @@ def main():
 
     scheduler = AsyncIOScheduler(timezone=VN_TZ)
     for hour in [7, 12, 18]:
-        scheduler.add_job(send_update, "cron", hour=hour, minute=0, args=[app.bot])
+        scheduler.add_job(scheduled_update, "cron", hour=hour, minute=0, args=[app.bot])
     scheduler.start()
 
     logging.info("🚀 Bot chạy...")
