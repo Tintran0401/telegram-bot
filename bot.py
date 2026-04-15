@@ -22,35 +22,122 @@ RSS_SOURCES = {
     "🌍 BBC Business":        "https://feeds.bbci.co.uk/news/business/rss.xml",
 }
 
-def get_market_data():
-    lines = []
-    try:
-        r = requests.get("https://api.gold-api.com/price/XAU", timeout=8)
-        if r.status_code == 200:
-            lines.append(f"🥇 Vàng: ${r.json().get('price',0):,.2f}")
-    except: pass
-    try:
-        r = requests.get("https://api.gold-api.com/price/XAG", timeout=8)
-        if r.status_code == 200:
-            lines.append(f"🥈 Bạc:  ${r.json().get('price',0):,.2f}")
-    except: pass
+def get_usd_vnd():
     try:
         r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=8)
         if r.status_code == 200:
-            lines.append(f"💵 USD/VND: {r.json()['rates'].get('VND',0):,.0f}")
+            return r.json()["rates"].get("VND", 25400)
     except: pass
+    return 25400
+
+def format_vnd(usd_amount, usd_vnd_rate):
+    vnd = usd_amount * usd_vnd_rate
+    if vnd >= 1_000_000_000:
+        return f"{vnd/1_000_000_000:.2f} tỷ ₫"
+    elif vnd >= 1_000_000:
+        return f"{vnd/1_000_000:.1f} tr ₫"
+    else:
+        return f"{vnd:,.0f} ₫"
+
+def get_market_data():
+    usd_vnd = get_usd_vnd()
+    lines = []
+
+    # ── Tỷ giá ──────────────────────────────────────────────
+    lines.append(f"💵 USD/VND: {usd_vnd:,.0f} ₫")
+
+    # ── Vàng & Bạc ──────────────────────────────────────────
     try:
-        for name, ticker in {"S&P500":"%5EGSPC","NASDAQ":"%5EIXIC","DJI":"%5EDJI"}.items():
+        r = requests.get("https://api.gold-api.com/price/XAU", timeout=8)
+        if r.status_code == 200:
+            gold = r.json().get("price", 0)
+            lines.append(
+                f"🥇 Vàng (XAU): ${gold:,.2f}\n"
+                f"     ≈ {format_vnd(gold, usd_vnd)} / troy oz"
+            )
+    except: pass
+
+    try:
+        r = requests.get("https://api.gold-api.com/price/XAG", timeout=8)
+        if r.status_code == 200:
+            silver = r.json().get("price", 0)
+            lines.append(
+                f"🥈 Bạc  (XAG): ${silver:,.2f}\n"
+                f"     ≈ {format_vnd(silver, usd_vnd)} / troy oz"
+            )
+    except: pass
+
+    # ── Sàn Mỹ ──────────────────────────────────────────────
+    lines.append("\n🇺🇸 *SÀN MỸ*")
+    try:
+        tickers = [
+            ("S&P 500",  "%5EGSPC"),
+            ("NASDAQ",   "%5EIXIC"),
+            ("Dow Jones","%5EDJI"),
+        ]
+        for name, ticker in tickers:
             r = requests.get(
                 f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
-                timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+                timeout=8, headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code == 200:
                 meta = r.json()["chart"]["result"][0]["meta"]
-                p = meta.get("regularMarketPrice", 0)
+                p    = meta.get("regularMarketPrice", 0)
                 prev = meta.get("chartPreviousClose", p)
-                chg = ((p - prev) / prev * 100) if prev else 0
-                lines.append(f"{'🟢' if chg>=0 else '🔴'} {name}: {p:,.2f} ({chg:+.2f}%)")
+                chg  = ((p - prev) / prev * 100) if prev else 0
+                arrow = "🟢" if chg >= 0 else "🔴"
+                lines.append(
+                    f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)\n"
+                    f"     ≈ {format_vnd(p, usd_vnd)}"
+                )
     except: pass
+
+    # ── Sàn Việt Nam ────────────────────────────────────────
+    lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
+    try:
+        vn_tickers = [
+            ("VN-Index",  "^VNINDEX"),
+            ("VN30",      "^VN30"),
+            ("HNX-Index", "^HNX"),
+        ]
+        for name, ticker in vn_tickers:
+            r = requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
+                timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200:
+                meta = r.json()["chart"]["result"][0]["meta"]
+                p    = meta.get("regularMarketPrice", 0)
+                prev = meta.get("chartPreviousClose", p)
+                chg  = ((p - prev) / prev * 100) if prev else 0
+                arrow = "🟢" if chg >= 0 else "🔴"
+                lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)")
+    except: pass
+
+    # ── Sàn Công nghệ (Tech) ─────────────────────────────────
+    lines.append("\n💻 *TECH STOCKS (MỸ)*")
+    try:
+        tech_tickers = [
+            ("Apple",   "AAPL"),
+            ("NVIDIA",  "NVDA"),
+            ("Google",  "GOOGL"),
+            ("Meta",    "META"),
+            ("Tesla",   "TSLA"),
+        ]
+        for name, ticker in tech_tickers:
+            r = requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
+                timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200:
+                meta = r.json()["chart"]["result"][0]["meta"]
+                p    = meta.get("regularMarketPrice", 0)
+                prev = meta.get("chartPreviousClose", p)
+                chg  = ((p - prev) / prev * 100) if prev else 0
+                arrow = "🟢" if chg >= 0 else "🔴"
+                lines.append(
+                    f"{arrow} {name}: ${p:,.2f} ({chg:+.2f}%)\n"
+                    f"     ≈ {format_vnd(p, usd_vnd)}"
+                )
+    except: pass
+
     return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
 
 def get_news():
@@ -89,7 +176,6 @@ async def send_update(bot: Bot):
     except Exception as e:
         logging.error(f"❌ {e}")
 
-# ── /start — menu chính ──────────────────────────────────────
 async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
@@ -105,7 +191,6 @@ async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ── /now bị vô hiệu hóa ──────────────────────────────────────
 async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info")]
@@ -115,7 +200,6 @@ async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ── Xử lý nút bấm ───────────────────────────────────────────
 async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -139,7 +223,6 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "reset":
-        # Xác nhận trước khi xóa
         keyboard = [
             [
                 InlineKeyboardButton("✅ Xác nhận xóa", callback_data="reset_confirm"),
@@ -157,13 +240,11 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = query.message.chat_id
         msg_id  = query.message.message_id
         deleted = 0
-        # Xóa lùi tối đa 200 tin nhắn gần nhất
         for i in range(msg_id, max(msg_id - 200, 0), -1):
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=i)
                 deleted += 1
             except: pass
-        # Gửi lại menu sau khi xóa
         keyboard = [
             [
                 InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
@@ -182,7 +263,6 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "reset_cancel":
         await query.message.reply_text("↩️ Đã hủy. Lịch sử chat giữ nguyên.")
 
-# ── Main ─────────────────────────────────────────────────────
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
