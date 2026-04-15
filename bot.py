@@ -91,52 +91,32 @@ def get_market_data():
                 )
     except: pass
 
-    # ── Sàn Việt Nam ────────────────────────────────────────
+   # ── Sàn Việt Nam ────────────────────────────────────────
     lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
     try:
-        vn_tickers = [
-            ("VN-Index",  "^VNINDEX"),
-            ("VN30",      "^VN30"),
-            ("HNX-Index", "^HNX"),
-        ]
-        for name, ticker in vn_tickers:
-            r = requests.get(
-                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
-                timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code == 200:
-                meta = r.json()["chart"]["result"][0]["meta"]
-                p    = meta.get("regularMarketPrice", 0)
-                prev = meta.get("chartPreviousClose", p)
-                chg  = ((p - prev) / prev * 100) if prev else 0
-                arrow = "🟢" if chg >= 0 else "🔴"
-                lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)")
-    except: pass
-
-    # ── Sàn Công nghệ (Tech) ─────────────────────────────────
-    lines.append("\n💻 *TECH STOCKS (MỸ)*")
-    try:
-        tech_tickers = [
-            ("Apple",   "AAPL"),
-            ("NVIDIA",  "NVDA"),
-            ("Google",  "GOOGL"),
-            ("Meta",    "META"),
-            ("Tesla",   "TSLA"),
-        ]
-        for name, ticker in tech_tickers:
-            r = requests.get(
-                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
-                timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code == 200:
-                meta = r.json()["chart"]["result"][0]["meta"]
-                p    = meta.get("regularMarketPrice", 0)
-                prev = meta.get("chartPreviousClose", p)
-                chg  = ((p - prev) / prev * 100) if prev else 0
+        # Dùng SSI API công khai để lấy VN-Index, VN30, HNX
+        r = requests.get(
+            "https://iboard-query.ssi.com.vn/v2/stock/index/snapshot?indexId=VNINDEX,VN30,HNX",
+            timeout=8, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        if r.status_code == 200:
+            data = r.json().get("data", [])
+            icons = {"VNINDEX": "📈", "VN30": "📊", "HNX": "📉"}
+            names = {"VNINDEX": "VN-Index", "VN30": "VN30", "HNX": "HNX-Index"}
+            for item in data:
+                idx   = item.get("indexId", "")
+                p     = float(item.get("indexValue", 0))
+                chg   = float(item.get("percentChange", 0))
+                vol   = item.get("totalQtty", 0)
                 arrow = "🟢" if chg >= 0 else "🔴"
                 lines.append(
-                    f"{arrow} {name}: ${p:,.2f} ({chg:+.2f}%)\n"
-                    f"     ≈ {format_vnd(p, usd_vnd)}"
+                    f"{arrow} {names.get(idx, idx)}: {p:,.2f} ({chg:+.2f}%)\n"
+                    f"     KL: {int(vol):,} cp"
                 )
-    except: pass
+        else:
+            lines.append("⚠️ Không lấy được dữ liệu sàn VN")
+    except Exception as e:
+        lines.append(f"⚠️ Lỗi sàn VN: {e}")
 
     return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
 
