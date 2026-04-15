@@ -92,9 +92,9 @@ def get_market_data():
     # Sàn Việt Nam — thử lần lượt 3 ticker khác nhau
     lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
     vn_tickers = [
-        ("VN-Index", ["%5EVNINDEX.VN", "%5EVNINDEX",  "VNINDEX.VN"]),
-        ("VN30",     ["%5EVN30",       "%5EVN30.VN",   "VN30.VN"  ]),
-        ("HNX",      ["%5EHNXINDEX",   "%5EHNX.VN",    "HNX.VN"   ]),
+        ("VN-Index",    ["%5EVNINDEX.VN", "%5EVNINDEX"                    ]),
+        ("VN30 (ETF)",  ["E1VFVN30.VN",  "%5EVN30",     "%5EVNIPR"       ]),
+        ("HNX",         ["%5EHNXINDEX",  "%5EHNX",      "%5EHNXINDEX.VN" ]),
     ]
     for name, tickers in vn_tickers:
         found = False
