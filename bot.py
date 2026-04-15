@@ -91,32 +91,36 @@ def get_market_data():
                 )
     except: pass
 
-   # ── Sàn Việt Nam (vnstock) ───────────────────────────────
+   # ── Sàn Việt Nam (TCBS API trực tiếp) ───────────────────
     lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
-    try:
-        from vnstock import Vnstock
-        stock = Vnstock().stock(symbol="VCI", source="VCI")
-        indices = [
-            ("VN-Index", "VNINDEX"),
-            ("VN30",     "VN30"),
-            ("HNX",      "HNX"),
-        ]
-        for name, code in indices:
-            try:
-                df = stock.trading.index_price(symbol=code)
-                if df is not None and not df.empty:
-                    row   = df.iloc[-1]
-                    p     = float(row.get("close", 0))
-                    prev  = float(row.get("open", p))
-                    chg   = ((p - prev) / prev * 100) if prev else 0
-                    arrow = "🟢" if chg >= 0 else "🔴"
-                    lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)")
-                else:
-                    lines.append(f"⏸ {name}: không có dữ liệu")
-            except:
-                lines.append(f"⚠️ {name}: lỗi")
-    except Exception as e:
-        lines.append(f"⚠️ Lỗi vnstock: {e}")
+    vn_indices = [
+        ("VN-Index", "VNINDEX"),
+        ("VN30",     "VN30"),
+        ("HNX",      "HNXIndex"),
+        ("UPCOM",    "UpcomIndex"),
+    ]
+    for name, code in vn_indices:
+        try:
+            r = requests.get(
+                f"https://apipubaws.tcbs.com.vn/stock-insight/v1/index/s?indexId={code}",
+                timeout=8,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                    "Accept": "application/json",
+                    "Referer": "https://tcinvest.tcbs.com.vn/",
+                    "Origin":  "https://tcinvest.tcbs.com.vn",
+                }
+            )
+            if r.status_code == 200:
+                data  = r.json()
+                p     = float(data.get("indexValue", 0))
+                chg   = float(data.get("percentChange", 0))
+                arrow = "🟢" if chg >= 0 else "🔴"
+                lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)")
+            else:
+                lines.append(f"⚠️ {name}: lỗi {r.status_code}")
+        except Exception as e:
+            lines.append(f"⚠️ {name}: {e}")
 
     return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
 
