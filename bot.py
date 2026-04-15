@@ -91,7 +91,33 @@ def get_market_data():
                 )
     except: pass
 
-   v
+   # ── Sàn Việt Nam (Yahoo Finance) ────────────────────────
+    lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
+    vn_tickers = [
+        ("VN-Index", "%5EVNINDEX.VN"),
+        ("VN30",     "%5EVN30.VN"),
+        ("HNX",      "%5EHNX.VN"),
+    ]
+    for name, ticker in vn_tickers:
+        try:
+            r = requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
+                timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200:
+                result = r.json().get("chart", {}).get("result", [])
+                if result:
+                    meta  = result[0]["meta"]
+                    p     = meta.get("regularMarketPrice", 0)
+                    prev  = meta.get("chartPreviousClose", p)
+                    chg   = ((p - prev) / prev * 100) if prev else 0
+                    arrow = "🟢" if chg >= 0 else "🔴"
+                    lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)")
+                else:
+                    lines.append(f"⏸ {name}: ngoài giờ giao dịch")
+            else:
+                lines.append(f"⚠️ {name}: không lấy được")
+        except:
+            lines.append(f"⚠️ {name}: lỗi kết nối")
 
     return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
 
