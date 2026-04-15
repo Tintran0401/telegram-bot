@@ -91,30 +91,38 @@ def get_market_data():
                 )
     except: pass
 
-   # ── Sàn Việt Nam ────────────────────────────────────────
+   # ── Sàn Việt Nam (VNDirect API) ─────────────────────────
     lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
     try:
-        # Dùng SSI API công khai để lấy VN-Index, VN30, HNX
-        r = requests.get(
-            "https://iboard-query.ssi.com.vn/v2/stock/index/snapshot?indexId=VNINDEX,VN30,HNX",
-            timeout=8, headers={"User-Agent": "Mozilla/5.0"}
-        )
-        if r.status_code == 200:
-            data = r.json().get("data", [])
-            icons = {"VNINDEX": "📈", "VN30": "📊", "HNX": "📉"}
-            names = {"VNINDEX": "VN-Index", "VN30": "VN30", "HNX": "HNX-Index"}
-            for item in data:
-                idx   = item.get("indexId", "")
-                p     = float(item.get("indexValue", 0))
-                chg   = float(item.get("percentChange", 0))
-                vol   = item.get("totalQtty", 0)
-                arrow = "🟢" if chg >= 0 else "🔴"
-                lines.append(
-                    f"{arrow} {names.get(idx, idx)}: {p:,.2f} ({chg:+.2f}%)\n"
-                    f"     KL: {int(vol):,} cp"
+        vn_indices = [
+            ("VN-Index", "VNINDEX"),
+            ("VN30",     "VN30"),
+            ("HNX",      "HNX"),
+        ]
+        for name, code in vn_indices:
+            try:
+                r = requests.get(
+                    f"https://finfo-api.vndirect.com.vn/v4/indices?q=code:{code}&size=1",
+                    timeout=8,
+                    headers={
+                        "User-Agent": "Mozilla/5.0",
+                        "Accept": "application/json"
+                    }
                 )
-        else:
-            lines.append("⚠️ Không lấy được dữ liệu sàn VN")
+                if r.status_code == 200:
+                    item = r.json().get("data", [{}])[0]
+                    p    = float(item.get("indexValue", 0))
+                    chg  = float(item.get("percentChange", 0))
+                    vol  = int(item.get("totalVolume", 0))
+                    arrow = "🟢" if chg >= 0 else "🔴"
+                    lines.append(
+                        f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)\n"
+                        f"     KL: {vol:,} cp"
+                    )
+                else:
+                    lines.append(f"⚠️ {name}: không lấy được")
+            except:
+                lines.append(f"⚠️ {name}: lỗi kết nối")
     except Exception as e:
         lines.append(f"⚠️ Lỗi sàn VN: {e}")
 
