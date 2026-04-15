@@ -91,33 +91,32 @@ def get_market_data():
                 )
     except: pass
 
-   # ── Sàn Việt Nam (Yahoo Finance) ────────────────────────
+   # ── Sàn Việt Nam (vnstock) ───────────────────────────────
     lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
-    vn_tickers = [
-        ("VN-Index", "%5EVNINDEX.VN"),
-        ("VN30",     "%5EVN30.VN"),
-        ("HNX",      "%5EHNX.VN"),
-    ]
-    for name, ticker in vn_tickers:
-        try:
-            r = requests.get(
-                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
-                timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code == 200:
-                result = r.json().get("chart", {}).get("result", [])
-                if result:
-                    meta  = result[0]["meta"]
-                    p     = meta.get("regularMarketPrice", 0)
-                    prev  = meta.get("chartPreviousClose", p)
+    try:
+        from vnstock import Vnstock
+        stock = Vnstock().stock(symbol="VCI", source="VCI")
+        indices = [
+            ("VN-Index", "VNINDEX"),
+            ("VN30",     "VN30"),
+            ("HNX",      "HNX"),
+        ]
+        for name, code in indices:
+            try:
+                df = stock.trading.index_price(symbol=code)
+                if df is not None and not df.empty:
+                    row   = df.iloc[-1]
+                    p     = float(row.get("close", 0))
+                    prev  = float(row.get("open", p))
                     chg   = ((p - prev) / prev * 100) if prev else 0
                     arrow = "🟢" if chg >= 0 else "🔴"
                     lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)")
                 else:
-                    lines.append(f"⏸ {name}: ngoài giờ giao dịch")
-            else:
-                lines.append(f"⚠️ {name}: không lấy được")
-        except:
-            lines.append(f"⚠️ {name}: lỗi kết nối")
+                    lines.append(f"⏸ {name}: không có dữ liệu")
+            except:
+                lines.append(f"⚠️ {name}: lỗi")
+    except Exception as e:
+        lines.append(f"⚠️ Lỗi vnstock: {e}")
 
     return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
 
