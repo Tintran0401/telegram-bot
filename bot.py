@@ -177,11 +177,23 @@ async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    if query.data == "info":
+if query.data == "info":
         await query.message.reply_text("⏳ Đang lấy dữ liệu, vui lòng chờ...")
         await send_update(context.bot)
-        await query.message.reply_text("💬 Bạn có đang đầu tư không?")
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
+                InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
+            ],
+            [
+                InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
+            ]
+        ]
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="📌 Chọn mục tiếp theo:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     elif query.data == "dautu":
         keyboard = [[InlineKeyboardButton("📊 Cập nhật thị trường ngay", callback_data="info")]]
