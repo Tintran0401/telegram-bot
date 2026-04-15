@@ -2,7 +2,6 @@ import feedparser
 import requests
 import logging
 import pytz
-import google.generativeai as genai
 import asyncio
 from datetime import datetime
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -13,9 +12,6 @@ import os
 BOT_TOKEN      = os.environ.get("BOT_TOKEN", "")
 CHAT_ID        = os.environ.get("CHAT_ID", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-
-genai.configure(api_key=GEMINI_API_KEY)
-gemini = genai.GenerativeModel("gemini-2.0-flash-lite")  # Nhanh gấp 3x
 
 VN_TZ = pytz.timezone("Asia/Ho_Chi_Minh")
 logging.basicConfig(level=logging.INFO)
@@ -184,13 +180,24 @@ async def build_message_async():
 
 # ── Gemini AI (async) ────────────────────────────────────────
 async def ask_gemini_async(prompt):
-    loop = asyncio.get_event_loop()
-    def _call():
-        try:
-            return gemini.generate_content(prompt).text
-        except Exception as e:
-            return f"⚠️ AI lỗi: {e}"
-    return await loop.run_in_executor(None, _call)
+    try:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
+        )
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.7}
+        }
+        loop = asyncio.get_event_loop()
+        def _call():
+            r = requests.post(url, json=payload, timeout=15)
+            if r.status_code == 200:
+                return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            return f"⚠️ AI lỗi: {r.status_code} — {r.text[:200]}"
+        return await loop.run_in_executor(None, _call)
+    except Exception as e:
+        return f"⚠️ AI lỗi: {e}"
 
 # ── Gửi bản tin ─────────────────────────────────────────────
 async def send_update(bot: Bot):
