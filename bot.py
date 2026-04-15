@@ -2,17 +2,24 @@ import feedparser
 import requests
 import logging
 import pytz
+import google.generativeai as genai
 from datetime import datetime
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import os
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-CHAT_ID   = os.environ.get("CHAT_ID", "")
+BOT_TOKEN      = os.environ.get("BOT_TOKEN", "")
+CHAT_ID        = os.environ.get("CHAT_ID", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+genai.configure(api_key=GEMINI_API_KEY)
+gemini = genai.GenerativeModel("gemini-2.0-flash")
 
 VN_TZ = pytz.timezone("Asia/Ho_Chi_Minh")
 logging.basicConfig(level=logging.INFO)
+
+last_bulletin = {"text": "", "time": ""}
 
 RSS_SOURCES = {
     "🇻🇳 VnExpress Kinh tế": "https://vnexpress.net/rss/kinh-doanh.rss",
@@ -28,11 +35,20 @@ MAIN_MENU = [
         InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
     ],
     [
-        InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
+        InlineKeyboardButton("🤖 Hỏi AI phân tích", callback_data="ai_menu"),
+        InlineKeyboardButton("🗑 Reset chat", callback_data="reset"),
     ]
 ]
 
-# ── Tỷ giá USD/VND ──────────────────────────────────────────
+AI_MENU = [
+    [InlineKeyboardButton("📰 Tóm tắt bản tin",       callback_data="ai_summary")],
+    [InlineKeyboardButton("📊 Phân tích thị trường",   callback_data="ai_analyze")],
+    [InlineKeyboardButton("💡 Tư vấn đầu tư hôm nay", callback_data="ai_invest") ],
+    [InlineKeyboardButton("💬 Chat tự do với AI",      callback_data="ai_chat")  ],
+    [InlineKeyboardButton("🔙 Quay lại menu chính",    callback_data="back_main") ],
+]
+
+# ── Helpers ──────────────────────────────────────────────────
 def get_usd_vnd():
     try:
         r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=8)
@@ -47,10 +63,8 @@ def format_vnd(usd_amount, rate):
         return f"{vnd/1_000_000_000:.2f} tỷ ₫"
     elif vnd >= 1_000_000:
         return f"{vnd/1_000_000:.1f} tr ₫"
-    else:
-        return f"{vnd:,.0f} ₫"
+    return f"{vnd:,.0f} ₫"
 
-# ── Yahoo Finance helper ─────────────────────────────────────
 def get_yahoo(ticker):
     try:
         r = requests.get(
@@ -67,15 +81,10 @@ def get_yahoo(ticker):
     except: pass
     return None, None
 
-# ── Dữ liệu thị trường ───────────────────────────────────────
 def get_market_data():
     usd_vnd = get_usd_vnd()
     lines = []
-
-    # Tỷ giá
     lines.append(f"💵 USD/VND: {usd_vnd:,.0f} ₫")
-
-    # Vàng & Bạc
     try:
         r = requests.get("https://api.gold-api.com/price/XAU", timeout=8)
         if r.status_code == 200:
@@ -88,8 +97,6 @@ def get_market_data():
             silver = r.json().get("price", 0)
             lines.append(f"🥈 Bạc  (XAG): ${silver:,.2f}\n     ≈ {format_vnd(silver, usd_vnd)} / oz")
     except: pass
-
-    # Sàn Mỹ
     lines.append("\n🇺🇸 *SÀN MỸ*")
     for name, ticker in [("S&P 500","%5EGSPC"),("NASDAQ","%5EIXIC"),("Dow Jones","%5EDJI")]:
         p, chg = get_yahoo(ticker)
@@ -98,8 +105,6 @@ def get_market_data():
             lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)\n     ≈ {format_vnd(p, usd_vnd)}")
         else:
             lines.append(f"⚠️ {name}: không lấy được")
-
-    # Sàn Việt Nam
     lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
     vn_tickers = [
         ("VN-Index",   ["%5EVNINDEX.VN", "%5EVNINDEX"                   ]),
@@ -117,10 +122,8 @@ def get_market_data():
                 break
         if not found:
             lines.append(f"⏸ {name}: ngoài giờ / không có dữ liệu")
+    return "\n".join(lines)
 
-    return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
-
-# ── Tin tức RSS ──────────────────────────────────────────────
 def get_news():
     blocks = []
     for name, url in RSS_SOURCES.items():
@@ -134,7 +137,6 @@ def get_news():
         except: continue
     return blocks
 
-# ── Bản tin hoàn chỉnh ───────────────────────────────────────
 def build_message():
     now = datetime.now(VN_TZ).strftime("%H:%M %d/%m/%Y")
     msg = (f"📊 *CẬP NHẬT KINH TẾ — {now}*\n"
@@ -144,7 +146,17 @@ def build_message():
     for b in get_news():
         msg += f"\n{b}\n"
     msg += "\n━━━━━━━━━━━━━━━"
+    last_bulletin["text"] = msg
+    last_bulletin["time"] = now
     return msg
+
+# ── Gemini AI ────────────────────────────────────────────────
+def ask_gemini(prompt):
+    try:
+        response = gemini.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"⚠️ AI lỗi: {e}"
 
 # ── Gửi bản tin ─────────────────────────────────────────────
 async def send_update(bot: Bot):
@@ -159,7 +171,6 @@ async def send_update(bot: Bot):
     except Exception as e:
         logging.error(f"❌ {e}")
 
-# ── Gửi menu ─────────────────────────────────────────────────
 async def send_menu(bot: Bot, chat_id):
     await bot.send_message(
         chat_id=chat_id,
@@ -167,23 +178,46 @@ async def send_menu(bot: Bot, chat_id):
         reply_markup=InlineKeyboardMarkup(MAIN_MENU)
     )
 
-# ── /start ───────────────────────────────────────────────────
+# ── Commands ─────────────────────────────────────────────────
 async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Xin chào! Chọn mục bạn muốn:",
         reply_markup=InlineKeyboardMarkup(MAIN_MENU)
     )
 
-# ── /now bị vô hiệu hóa ─────────────────────────────────────
 async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "⚠️ Lệnh /now đã bị vô hiệu hóa.\nVui lòng dùng menu bên dưới:",
+        "⚠️ Lệnh /now đã bị vô hiệu hóa.\nVui lòng dùng menu:",
         reply_markup=InlineKeyboardMarkup(MAIN_MENU)
     )
 
+# ── Chat tự do với AI ────────────────────────────────────────
+async def handle_message(update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("ai_chat_mode"):
+        user_text = update.message.text
+        await update.message.reply_text("🤖 AI đang suy nghĩ...")
+        bulletin  = last_bulletin.get("text", "Chưa có dữ liệu thị trường.")
+        prompt = (
+            f"Bạn là chuyên gia tài chính Việt Nam. Trả lời bằng tiếng Việt, "
+            f"ngắn gọn, rõ ràng. Không đưa ra lời khuyên tài chính tuyệt đối.\n\n"
+            f"Dữ liệu thị trường mới nhất:\n{bulletin}\n\n"
+            f"Câu hỏi: {user_text}"
+        )
+        reply = ask_gemini(prompt)
+        await update.message.reply_text(
+            f"🤖 *AI trả lời:*\n\n{reply}",
+            parse_mode="Markdown"
+        )
+        await update.message.reply_text(
+            "💬 Tiếp tục hỏi hoặc thoát:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Thoát chat AI", callback_data="back_main")]
+            ])
+        )
+
 # ── Xử lý nút bấm ───────────────────────────────────────────
 async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+    query   = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
 
@@ -202,16 +236,104 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(MAIN_MENU)
         )
 
-    elif query.data == "reset":
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Xác nhận xóa", callback_data="reset_confirm"),
-                InlineKeyboardButton("❌ Hủy",          callback_data="reset_cancel"),
-            ]
-        ]
+    elif query.data == "ai_menu":
         await query.message.reply_text(
-            "⚠️ *Bạn có chắc muốn xóa toàn bộ lịch sử chat không?*\n"
-            "Hành động này không thể hoàn tác!",
+            "🤖 *AI PHÂN TÍCH — Gemini*\n━━━━━━━━━━━━━━━\n"
+            "Chọn tính năng AI bạn muốn:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(AI_MENU)
+        )
+
+    elif query.data == "ai_summary":
+        if not last_bulletin["text"]:
+            await query.message.reply_text(
+                "⚠️ Chưa có bản tin!\nNhấn 📊 Thông tin thị trường trước.",
+                reply_markup=InlineKeyboardMarkup(MAIN_MENU)
+            )
+            return
+        await query.message.reply_text("🤖 Gemini đang tóm tắt...")
+        prompt = (
+            f"Tóm tắt bản tin kinh tế sau thành 5-7 điểm quan trọng nhất, "
+            f"dễ hiểu, bằng tiếng Việt, dùng emoji:\n\n{last_bulletin['text']}"
+        )
+        reply = ask_gemini(prompt)
+        await query.message.reply_text(
+            f"🤖 *TÓM TẮT — {last_bulletin['time']}*\n\n{reply}",
+            parse_mode="Markdown"
+        )
+        await send_menu(context.bot, chat_id)
+
+    elif query.data == "ai_analyze":
+        if not last_bulletin["text"]:
+            await query.message.reply_text(
+                "⚠️ Chưa có bản tin!\nNhấn 📊 Thông tin thị trường trước.",
+                reply_markup=InlineKeyboardMarkup(MAIN_MENU)
+            )
+            return
+        await query.message.reply_text("🤖 Gemini đang phân tích thị trường...")
+        prompt = (
+            f"Phân tích xu hướng thị trường tài chính từ dữ liệu sau. "
+            f"Chỉ ra điểm đáng chú ý, rủi ro và cơ hội. "
+            f"Trả lời bằng tiếng Việt, súc tích, dùng emoji:\n\n{last_bulletin['text']}"
+        )
+        reply = ask_gemini(prompt)
+        await query.message.reply_text(
+            f"🤖 *PHÂN TÍCH THỊ TRƯỜNG*\n\n{reply}",
+            parse_mode="Markdown"
+        )
+        await send_menu(context.bot, chat_id)
+
+    elif query.data == "ai_invest":
+        if not last_bulletin["text"]:
+            await query.message.reply_text(
+                "⚠️ Chưa có bản tin!\nNhấn 📊 Thông tin thị trường trước.",
+                reply_markup=InlineKeyboardMarkup(MAIN_MENU)
+            )
+            return
+        await query.message.reply_text("🤖 Gemini đang đưa ra góc nhìn đầu tư...")
+        prompt = (
+            f"Dựa trên dữ liệu thị trường, đưa ra góc nhìn đầu tư ngắn hạn hôm nay "
+            f"cho nhà đầu tư cá nhân Việt Nam: nên chú ý kênh nào (vàng, chứng khoán, "
+            f"USD, crypto...), lý do ngắn gọn. Viết bằng tiếng Việt, dùng emoji. "
+            f"Luôn nhắc đây chỉ là tham khảo.\n\n{last_bulletin['text']}"
+        )
+        reply = ask_gemini(prompt)
+        await query.message.reply_text(
+            f"🤖 *GÓC NHÌN ĐẦU TƯ HÔM NAY*\n\n{reply}\n\n"
+            f"⚠️ _Chỉ mang tính tham khảo._",
+            parse_mode="Markdown"
+        )
+        await send_menu(context.bot, chat_id)
+
+    elif query.data == "ai_chat":
+        context.user_data["ai_chat_mode"] = True
+        await query.message.reply_text(
+            "💬 *CHAT TỰ DO VỚI GEMINI AI*\n━━━━━━━━━━━━━━━\n"
+            "Gõ câu hỏi bất kỳ về kinh tế, đầu tư...\n\n"
+            "Ví dụ:\n"
+            "• _Vàng có nên mua lúc này không?_\n"
+            "• _Tại sao USD/VND tăng?_\n"
+            "• _Fed là gì, ảnh hưởng thế nào?_",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Thoát chat AI", callback_data="back_main")]
+            ])
+        )
+
+    elif query.data == "back_main":
+        context.user_data["ai_chat_mode"] = False
+        await query.message.reply_text(
+            "👋 Quay lại menu chính:",
+            reply_markup=InlineKeyboardMarkup(MAIN_MENU)
+        )
+
+    elif query.data == "reset":
+        keyboard = [[
+            InlineKeyboardButton("✅ Xác nhận xóa", callback_data="reset_confirm"),
+            InlineKeyboardButton("❌ Hủy",          callback_data="reset_cancel"),
+        ]]
+        await query.message.reply_text(
+            "⚠️ *Bạn có chắc muốn xóa toàn bộ lịch sử chat không?*",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -232,7 +354,7 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "reset_cancel":
         await query.message.reply_text(
-            "↩️ Đã hủy. Lịch sử chat giữ nguyên.",
+            "↩️ Đã hủy.",
             reply_markup=InlineKeyboardMarkup(MAIN_MENU)
         )
 
@@ -247,6 +369,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("now",   cmd_now))
     app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     scheduler = AsyncIOScheduler(timezone=VN_TZ)
     for hour in [7, 12, 18]:
