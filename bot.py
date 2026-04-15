@@ -91,40 +91,7 @@ def get_market_data():
                 )
     except: pass
 
-   # ── Sàn Việt Nam (VNDirect API) ─────────────────────────
-    lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
-    try:
-        vn_indices = [
-            ("VN-Index", "VNINDEX"),
-            ("VN30",     "VN30"),
-            ("HNX",      "HNX"),
-        ]
-        for name, code in vn_indices:
-            try:
-                r = requests.get(
-                    f"https://finfo-api.vndirect.com.vn/v4/indices?q=code:{code}&size=1",
-                    timeout=8,
-                    headers={
-                        "User-Agent": "Mozilla/5.0",
-                        "Accept": "application/json"
-                    }
-                )
-                if r.status_code == 200:
-                    item = r.json().get("data", [{}])[0]
-                    p    = float(item.get("indexValue", 0))
-                    chg  = float(item.get("percentChange", 0))
-                    vol  = int(item.get("totalVolume", 0))
-                    arrow = "🟢" if chg >= 0 else "🔴"
-                    lines.append(
-                        f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)\n"
-                        f"     KL: {vol:,} cp"
-                    )
-                else:
-                    lines.append(f"⚠️ {name}: không lấy được")
-            except:
-                lines.append(f"⚠️ {name}: lỗi kết nối")
-    except Exception as e:
-        lines.append(f"⚠️ Lỗi sàn VN: {e}")
+   v
 
     return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
 
