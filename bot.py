@@ -22,6 +22,7 @@ RSS_SOURCES = {
     "🌍 BBC Business":        "https://feeds.bbci.co.uk/news/business/rss.xml",
 }
 
+# ── Tỷ giá USD/VND ──────────────────────────────────────────
 def get_usd_vnd():
     try:
         r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=8)
@@ -30,8 +31,8 @@ def get_usd_vnd():
     except: pass
     return 25400
 
-def format_vnd(usd_amount, usd_vnd_rate):
-    vnd = usd_amount * usd_vnd_rate
+def format_vnd(usd_amount, rate):
+    vnd = usd_amount * rate
     if vnd >= 1_000_000_000:
         return f"{vnd/1_000_000_000:.2f} tỷ ₫"
     elif vnd >= 1_000_000:
@@ -39,91 +40,77 @@ def format_vnd(usd_amount, usd_vnd_rate):
     else:
         return f"{vnd:,.0f} ₫"
 
+# ── Yahoo Finance helper ─────────────────────────────────────
+def get_yahoo(ticker):
+    try:
+        r = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
+            timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code == 200:
+            result = r.json().get("chart", {}).get("result", [])
+            if result:
+                meta = result[0]["meta"]
+                p    = float(meta.get("regularMarketPrice", 0))
+                prev = float(meta.get("chartPreviousClose", p))
+                chg  = ((p - prev) / prev * 100) if prev else 0
+                return p, chg
+    except: pass
+    return None, None
+
+# ── Dữ liệu thị trường ───────────────────────────────────────
 def get_market_data():
     usd_vnd = get_usd_vnd()
     lines = []
 
-    # ── Tỷ giá ──────────────────────────────────────────────
+    # Tỷ giá
     lines.append(f"💵 USD/VND: {usd_vnd:,.0f} ₫")
 
-    # ── Vàng & Bạc ──────────────────────────────────────────
+    # Vàng & Bạc
     try:
         r = requests.get("https://api.gold-api.com/price/XAU", timeout=8)
         if r.status_code == 200:
             gold = r.json().get("price", 0)
-            lines.append(
-                f"🥇 Vàng (XAU): ${gold:,.2f}\n"
-                f"     ≈ {format_vnd(gold, usd_vnd)} / troy oz"
-            )
+            lines.append(f"🥇 Vàng (XAU): ${gold:,.2f}\n     ≈ {format_vnd(gold, usd_vnd)} / oz")
     except: pass
-
     try:
         r = requests.get("https://api.gold-api.com/price/XAG", timeout=8)
         if r.status_code == 200:
             silver = r.json().get("price", 0)
-            lines.append(
-                f"🥈 Bạc  (XAG): ${silver:,.2f}\n"
-                f"     ≈ {format_vnd(silver, usd_vnd)} / troy oz"
-            )
+            lines.append(f"🥈 Bạc  (XAG): ${silver:,.2f}\n     ≈ {format_vnd(silver, usd_vnd)} / oz")
     except: pass
 
-    # ── Sàn Mỹ ──────────────────────────────────────────────
+    # Sàn Mỹ
     lines.append("\n🇺🇸 *SÀN MỸ*")
-    try:
-        tickers = [
-            ("S&P 500",  "%5EGSPC"),
-            ("NASDAQ",   "%5EIXIC"),
-            ("Dow Jones","%5EDJI"),
-        ]
-        for name, ticker in tickers:
-            r = requests.get(
-                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
-                timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code == 200:
-                meta = r.json()["chart"]["result"][0]["meta"]
-                p    = meta.get("regularMarketPrice", 0)
-                prev = meta.get("chartPreviousClose", p)
-                chg  = ((p - prev) / prev * 100) if prev else 0
-                arrow = "🟢" if chg >= 0 else "🔴"
-                lines.append(
-                    f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)\n"
-                    f"     ≈ {format_vnd(p, usd_vnd)}"
-                )
-    except: pass
+    for name, ticker in [("S&P 500","%5EGSPC"),("NASDAQ","%5EIXIC"),("Dow Jones","%5EDJI")]:
+        p, chg = get_yahoo(ticker)
+        if p:
+            arrow = "🟢" if chg >= 0 else "🔴"
+            lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)\n     ≈ {format_vnd(p, usd_vnd)}")
+        else:
+            lines.append(f"⚠️ {name}: không lấy được")
 
-   # ── Sàn Việt Nam (TCBS API trực tiếp) ───────────────────
+    # Sàn Việt Nam — thử lần lượt 3 ticker khác nhau
     lines.append("\n🇻🇳 *SÀN VIỆT NAM*")
-    vn_indices = [
-        ("VN-Index", "VNINDEX"),
-        ("VN30",     "VN30"),
-        ("HNX",      "HNXIndex"),
-        ("UPCOM",    "UpcomIndex"),
+    vn_tickers = [
+        ("VN-Index", ["%5EVNINDEX.VN", "%5EVNINDEX",  "VNINDEX.VN"]),
+        ("VN30",     ["%5EVN30",       "%5EVN30.VN",   "VN30.VN"  ]),
+        ("HNX",      ["%5EHNXINDEX",   "%5EHNX.VN",    "HNX.VN"   ]),
     ]
-    for name, code in vn_indices:
-        try:
-            r = requests.get(
-                f"https://apipubaws.tcbs.com.vn/stock-insight/v1/index/s?indexId={code}",
-                timeout=8,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                    "Accept": "application/json",
-                    "Referer": "https://tcinvest.tcbs.com.vn/",
-                    "Origin":  "https://tcinvest.tcbs.com.vn",
-                }
-            )
-            if r.status_code == 200:
-                data  = r.json()
-                p     = float(data.get("indexValue", 0))
-                chg   = float(data.get("percentChange", 0))
+    for name, tickers in vn_tickers:
+        found = False
+        for ticker in tickers:
+            p, chg = get_yahoo(ticker)
+            if p and p > 0:
                 arrow = "🟢" if chg >= 0 else "🔴"
                 lines.append(f"{arrow} {name}: {p:,.2f} ({chg:+.2f}%)")
-            else:
-                lines.append(f"⚠️ {name}: lỗi {r.status_code}")
-        except Exception as e:
-            lines.append(f"⚠️ {name}: {e}")
+                found = True
+                break
+        if not found:
+            lines.append(f"⏸ {name}: ngoài giờ / không có dữ liệu")
 
     return "\n".join(lines) or "⚠️ Không lấy được dữ liệu"
 
+# ── Tin tức RSS ──────────────────────────────────────────────
 def get_news():
     blocks = []
     for name, url in RSS_SOURCES.items():
@@ -137,6 +124,7 @@ def get_news():
         except: continue
     return blocks
 
+# ── Bản tin hoàn chỉnh ───────────────────────────────────────
 def build_message():
     now = datetime.now(VN_TZ).strftime("%H:%M %d/%m/%Y")
     msg = (f"📊 *CẬP NHẬT KINH TẾ — {now}*\n"
@@ -148,6 +136,7 @@ def build_message():
     msg += "\n━━━━━━━━━━━━━━━"
     return msg
 
+# ── Gửi bản tin ─────────────────────────────────────────────
 async def send_update(bot: Bot):
     try:
         await bot.send_message(
@@ -160,6 +149,7 @@ async def send_update(bot: Bot):
     except Exception as e:
         logging.error(f"❌ {e}")
 
+# ── Menu /start ──────────────────────────────────────────────
 async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
@@ -175,28 +165,26 @@ async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# ── /now bị vô hiệu hóa ─────────────────────────────────────
 async def cmd_now(update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info")]
-    ]
+    keyboard = [[InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info")]]
     await update.message.reply_text(
         "⚠️ Lệnh /now đã bị vô hiệu hóa.\nVui lòng dùng menu bên dưới:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# ── Xử lý nút bấm ───────────────────────────────────────────
 async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if query.data == "info":
-        await query.message.reply_text("⏳ Đang lấy dữ liệu...")
+        await query.message.reply_text("⏳ Đang lấy dữ liệu, vui lòng chờ...")
         await send_update(context.bot)
         await query.message.reply_text("💬 Bạn có đang đầu tư không?")
 
     elif query.data == "dautu":
-        keyboard = [
-            [InlineKeyboardButton("📊 Cập nhật thị trường ngay", callback_data="info")]
-        ]
+        keyboard = [[InlineKeyboardButton("📊 Cập nhật thị trường ngay", callback_data="info")]]
         await query.message.reply_text(
             "💰 *ĐẦU TƯ*\n━━━━━━━━━━━━━━━\n\n"
             "📌 Bản tin tự động gửi lúc:\n"
@@ -210,7 +198,7 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [
                 InlineKeyboardButton("✅ Xác nhận xóa", callback_data="reset_confirm"),
-                InlineKeyboardButton("❌ Hủy", callback_data="reset_cancel"),
+                InlineKeyboardButton("❌ Hủy",          callback_data="reset_cancel"),
             ]
         ]
         await query.message.reply_text(
@@ -232,7 +220,7 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [
                 InlineKeyboardButton("📊 Thông tin thị trường", callback_data="info"),
-                InlineKeyboardButton("💰 Đầu tư", callback_data="dautu"),
+                InlineKeyboardButton("💰 Đầu tư",               callback_data="dautu"),
             ],
             [
                 InlineKeyboardButton("🗑 Reset — Xóa lịch sử chat", callback_data="reset"),
@@ -247,6 +235,7 @@ async def button_handler(update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "reset_cancel":
         await query.message.reply_text("↩️ Đã hủy. Lịch sử chat giữ nguyên.")
 
+# ── Main ─────────────────────────────────────────────────────
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
